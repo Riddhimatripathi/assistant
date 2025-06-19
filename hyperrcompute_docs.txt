@@ -1,0 +1,8 @@
+Installation:
+npm i -g hyperrcompute
+
+Start provider:
+hyperrcompute provider --port 8080 --live
+
+Connect client:
+hyperrcompute client --provider http://localhost:8080 --gpu A100

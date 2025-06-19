@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hyperr-Assistant</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: #1f1f2e;
+      color: #f8f8f8;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 260px;
+      background: #2c2c40;
+      color: white;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #444;
+    }
+    #sessionList {
+      flex: 1;
+      overflow-y: auto;
+      margin-bottom: 1rem;
+    }
+    .chat-session {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem;
+      border-bottom: 1px solid #555;
+      cursor: pointer;
+      background: #2c2c40;
+    }
+    .chat-session:hover {
+      background: #3d3d5c;
+    }
+    .chat-session.active {
+      background: #6c5ce7;
+    }
+    .chat-session span {
+      flex: 1;
+    }
+    .chat-session button {
+      background: transparent;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+    }
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 1rem;
+      background: #242438;
+    }
+    #chatbox {
+      flex: 1;
+      border: 1px solid #444;
+      padding: 1rem;
+      overflow-y: auto;
+      background: #1f1f2e;
+      border-radius: 8px;
+    }
+    .message {
+      margin-bottom: 1.2rem;
+      max-width: 80%;
+      padding: 0.8rem 1rem;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      word-wrap: break-word;
+    }
+    .user {
+      background: #6c5ce7;
+      align-self: flex-end;
+      color: white;
+      margin-left: auto;
+    }
+    .bot {
+      background: #3c3c5c;
+      color: #f1f1f1;
+      border-left: 4px solid #a29bfe;
+    }
+    .typing-indicator {
+      font-style: italic;
+      color: #bbb;
+      margin-top: 5px;
+    }
+    #inputSection {
+      margin-top: 1rem;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    #messageInput {
+      flex: 1;
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+      border-radius: 6px;
+      border: 1px solid #666;
+      background-color: #33334d;
+      color: #fff;
+    }
+    #sendBtn {
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+      cursor: pointer;
+      background: #a29bfe;
+      color: black;
+      border: none;
+      border-radius: 6px;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div id="sidebar">
+    <h3>Sessions</h3>
+    <div id="sessionList"></div>
+    <button onclick="createSession()">➕ New Chat</button>
+  </div>
+
+  <div id="main">
+    <div id="chatbox"></div>
+    <div class="typing-indicator" id="typing"></div>
+    <div id="inputSection">
+      <input type="text" id="messageInput" placeholder="Type your message...">
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    let currentSession = null;
+    const chatbox = document.getElementById("chatbox");
+    const messageInput = document.getElementById("messageInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const sessionListDiv = document.getElementById("sessionList");
+    const typingIndicator = document.getElementById("typing");
+
+    async function fetchSessions() {
+      const res = await fetch("/sessions");
+      const sessions = await res.json();
+      sessionListDiv.innerHTML = "";
+      sessions.forEach(sess => {
+        const div = document.createElement("div");
+        div.className = "chat-session" + (sess.id === currentSession ? " active" : "");
+
+        const span = document.createElement("span");
+        span.textContent = new Date(sess.created_at).toLocaleString();
+        span.onclick = () => loadSession(sess.id);
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "🗑️";
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          fetch(`/session/${sess.id}`, { method: 'DELETE' }).then(fetchSessions);
+          if (sess.id === currentSession) currentSession = null;
+          chatbox.innerHTML = "";
+        };
+
+        div.appendChild(span);
+        div.appendChild(delBtn);
+        sessionListDiv.appendChild(div);
+      });
+    }
+
+    async function createSession() {
+      const res = await fetch("/new_session", { method: "POST" });
+      const json = await res.json();
+      currentSession = json.id;
+      await fetchSessions();
+      await loadSession(currentSession);
+    }
+
+    async function loadSession(id) {
+      currentSession = id;
+      chatbox.innerHTML = "";
+      const res = await fetch(`/chat/${id}`);
+      const history = await res.json();
+      history.forEach(m => appendMessage(m.role, m.content));
+      fetchSessions();
+    }
+
+    function appendMessage(sender, text) {
+      const div = document.createElement("div");
+      div.className = `message ${sender}`;
+      div.innerHTML = marked.parse(text);
+      chatbox.appendChild(div);
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    sendBtn.onclick = async () => {
+      const msg = messageInput.value.trim();
+      if (!msg || !currentSession) return;
+
+      appendMessage("user", msg);
+      messageInput.value = "";
+      typingIndicator.textContent = "Hyperr‑Assistant is typing...";
+
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: currentSession, message: msg })
+      });
+
+      const json = await res.json();
+      typingIndicator.textContent = "";
+      appendMessage("bot", json.response);
+    };
+
+    messageInput.addEventListener("keypress", e => {
+      if (e.key === "Enter") sendBtn.click();
+    });
+
+    fetchSessions();
+  </script>
+</body>
+</html>
